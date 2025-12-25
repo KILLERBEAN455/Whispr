@@ -1,0 +1,12 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Simple app-level styling to keep UI soft and roomy */
+html, body, #root {
+  height: 100%;
+}
+
+.message-bubble {
+  max-width: 72%;
+}
