@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Whispr - Video Chat</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #121212; color: #fff; text-align: center; }
+    #videos { display: flex; justify-content: center; gap: 20px; margin: 20px; }
+    video { width: 400px; height: 300px; background: #000; border-radius: 10px; }
+    #chat { width: 300px; height: 300px; background: #222; margin: 20px auto; overflow-y: scroll; padding: 10px; text-align: left; }
+    #message-input { width: 80%; padding: 10px; }
+    button { padding: 10px 20px; background: #4CAF50; color: white; border: none; cursor: pointer; }
+    h1 { color: #4CAF50; }
+  </style>
+</head>
+<body>
+  <h1>Whispr</h1>
+  <p>Share this link to start a call: <strong id="room-link"></strong></p>
+
+  <div id="videos">
+    <video id="local-video" autoplay muted playsinline></video>
+    <video id="remote-video" autoplay playsinline></video>
+  </div>
+
+  <div id="chat"></div>
+  <input type="text" id="message-input" placeholder="Type a message...">
+  <button id="send-button">Send</button>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const roomId = window.location.pathname.substring(1) || 'default-room';
+    document.getElementById('room-link').textContent = window.location.href;
+
+    const socket = io();
+    socket.emit('join-room', roomId);
+
+    const localVideo = document.getElementById('local-video');
+    const remoteVideo = document.getElementById('remote-video');
+    const chat = document.getElementById('chat');
+    const messageInput = document.getElementById('message-input');
+    const sendButton = document.getElementById('send-button');
+
+    let peerConnection;
+    const config = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+    navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+      .then(stream => {
+        localVideo.srcObject = stream;
+        startCall(stream);
+      });
+
+    function startCall(stream) {
+      peerConnection = new RTCPeerConnection(config);
+
+      stream.getTracks().forEach(track => peerConnection.addTrack(track, stream));
+
+      peerConnection.ontrack = event => {
+        remoteVideo.srcObject = event.streams[0];
+      };
+
+      peerConnection.onicecandidate = event => {
+        if (event.candidate) {
+          socket.emit('signal', { candidate: event.candidate });
+        }
+      };
+
+      socket.on('signal', async data => {
+        if (data.offer) {
+          await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
+          const answer = await peerConnection.createAnswer();
+          await peerConnection.setLocalDescription(answer);
+          socket.emit('signal', { answer });
+        } else if (data.answer) {
+          await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+        } else if (data.candidate) {
+          await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
+        }
+      });
+
+      socket.on('user-connected', async () => {
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        socket.emit('signal', { offer });
+      });
+    }
+
+    // Text Chat
+    sendButton.onclick = () => {
+      const msg = messageInput.value;
+      if (msg) {
+        chat.innerHTML += `<p><strong>You:</strong> ${msg}</p>`;
+        socket.emit('message', msg);
+        messageInput.value = '';
+      }
+    };
+
+    socket.on('message', msg => {
+      chat.innerHTML += `<p><strong>Other:</strong> ${msg}</p>`;
+      chat.scrollTop = chat.scrollHeight;
+    });
+  </script>
+</body>
+</html>
